@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: sans-serif; background: #f4f4f9; padding: 20px; }
+        .controls { margin-bottom: 15px; display: flex; gap: 10px; align-items: center; }
+        
+        #workspace {
+            position: relative;
+            background: #fff;
+            border: 2px solid #333;
+            margin: 0 auto;
+            overflow: hidden;
+            display: none;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .img-wrapper {
+            position: absolute;
+            cursor: move;
+            display: inline-block;
+            line-height: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        /* Пунктирная рамка при наведении или выборе */
+        .img-wrapper.active {
+            outline: 2px dashed #007bff;
+            outline-offset: -2px;
+        }
+
+        .img-wrapper img {
+            width: 100%;
+            height: 100%;
+            display: block;
+            pointer-events: none; /* Чтобы не мешать событиям обертки */
+        }
+
+        /* Маркер изменения размера */
+        .resizer {
+            width: 12px;
+            height: 12px;
+            background: #007bff;
+            position: absolute;
+            right: -6px;
+            bottom: -6px;
+            cursor: nwse-resize;
+            border-radius: 50%;
+            display: none;
+        }
+
+        .img-wrapper.active .resizer { display: block; }
+
+        /* Панель слоев */
+        .layer-controls {
+            position: absolute;
+            top: -30px;
+            left: 0;
+            display: none;
+            gap: 5px;
+        }
+        .img-wrapper.active .layer-controls { display: flex; }
+        .layer-controls button {
+            padding: 2px 8px;
+            font-size: 10px;
+            cursor: pointer;
+            background: #333;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+        }
+
+        #saveBtn { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <input type="file" id="loader" accept="image/*" multiple>
+        <button id="saveBtn" style="display:none;">Сохранить результат</button>
+    </div>
+
+    <div id="workspace"></div>
+
+    <script>
+        const loader = document.getElementById('loader');
+        const workspace = document.getElementById('workspace');
+        const saveBtn = document.getElementById('saveBtn');
+        let maxWidth = 0, maxHeight = 0;
+        let activeElement = null;
+
+        loader.onchange = (e) => {
+            const files = Array.from(e.target.files).slice(0, 2);
+            workspace.innerHTML = '';
+            maxWidth = 0; maxHeight = 0;
+            
+            files.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.src = ev.target.result;
+                    img.onload = () => {
+                        if (img.naturalWidth > maxWidth) maxWidth = img.naturalWidth;
+                        if (img.naturalHeight > maxHeight) maxHeight = img.naturalHeight;
+                        
+                        workspace.style.width = maxWidth + 'px';
+                        workspace.style.height = maxHeight + 'px';
+                        workspace.style.display = 'block';
+                        saveBtn.style.display = 'block';
+
+                        createWrapper(img, index);
+                    };
+                };
+                reader.readAsDataURL(file);
+            });
+        };
+
+        function createWrapper(img, index) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'img-wrapper';
+            wrapper.style.zIndex = index + 1;
+            wrapper.style.left = '10px';
+            wrapper.style.top = '10px';
+            wrapper.style.width = (img.naturalWidth / 2) + 'px'; // Начальный размер
+
+            // Кнопки слоев
+            wrapper.innerHTML = `
+                <div class="layer-controls">
+                    <button onclick="changeLayer(this, 1)">Выше</button>
+                    <button onclick="changeLayer(this, -1)">Ниже</button>
+                </div>
+                <div class="resizer"></div>
+            `;
+            wrapper.appendChild(img);
+            workspace.appendChild(wrapper);
+
+            initDragAndResize(wrapper);
+        }
+
+        function initDragAndResize(el) {
+            const resizer = el.querySelector('.resizer');
+
+            el.onmousedown = (e) => {
+                if (e.target.tagName === 'BUTTON') return;
+                
+                // Активация слоя
+                if (activeElement) activeElement.classList.remove('active');
+                activeElement = el;
+                el.classList.add('active');
+
+                let startX = e.clientX;
+                let startY = e.clientY;
+                let startLeft = el.offsetLeft;
+                let startTop = el.offsetTop;
+
+                document.onmousemove = (e) => {
+                    el.style.left = (startLeft + e.clientX - startX) + 'px';
+                    el.style.top = (startTop + e.clientY - startY) + 'px';
+                };
+
+                document.onmouseup = () => document.onmousemove = null;
+            };
+
+            // Изменение размера
+            resizer.onmousedown = (e) => {
+                e.stopPropagation(); // Чтобы не срабатывал Drag
+                let startX = e.clientX;
+                let startWidth = el.offsetWidth;
+                const ratio = el.offsetHeight / el.offsetWidth;
+
+                document.onmousemove = (e) => {
+                    let newWidth = startWidth + (e.clientX - startX);
+                    if (newWidth > 30) {
+                        el.style.width = newWidth + 'px';
+                    }
+                };
+                document.onmouseup = () => document.onmousemove = null;
+            };
+        }
+
+        function changeLayer(btn, direction) {
+            const el = btn.closest('.img-wrapper');
+            let currentZ = parseInt(el.style.zIndex);
+            el.style.zIndex = Math.max(1, currentZ + direction);
+        }
+
+        saveBtn.onclick = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = maxWidth;
+            canvas.height = maxHeight;
+            const ctx = canvas.getContext('2d');
+
+            // Сортируем элементы по z-index перед отрисовкой
+            const wrappers = Array.from(workspace.querySelectorAll('.img-wrapper'))
+                .sort((a, b) => parseInt(a.style.zIndex) - parseInt(b.style.zIndex));
+
+            wrappers.forEach(wrap => {
+                const img = wrap.querySelector('img');
+                ctx.drawImage(img, 
+                    parseFloat(wrap.style.left), 
+                    parseFloat(wrap.style.top), 
+                    wrap.offsetWidth, 
+                    wrap.offsetHeight
+                );
+            });
+
+            const link = document.createElement('a');
+            link.download = 'result.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
+
+        // Клик мимо для снятия выделения
+        window.onclick = (e) => {
+            if (!e.target.closest('.img-wrapper') && !e.target.closest('#loader')) {
+                if (activeElement) activeElement.classList.remove('active');
+                activeElement = null;
+            }
+        };
+    </script>
+</body>
+</html>
