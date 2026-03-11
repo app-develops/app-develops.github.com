@@ -20,6 +20,7 @@
 
         .controls {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
             padding: 15px;
             width: 100%;
@@ -106,7 +107,13 @@
             color: white;
             flex-grow: 1;
             display: none;
-            padding: 5px !important;
+            width: fit-content;
+            /* Кнопка подстраивается под содержимое */
+            display: inline-block;
+        }
+
+        .btn-download {
+            border: 0;
         }
 
         .resizer {
@@ -122,6 +129,10 @@
             z-index: 1001;
         }
 
+        .hidden {
+            display: none !important;
+        }
+
         .img-wrapper.active .resizer {
             display: block;
         }
@@ -132,7 +143,7 @@
 
     <div class="controls">
         <input type="file" id="loader" accept="image/*" multiple>
-        <button id="saveBtn" class="btn">💾 Скачать</button>
+        <button id="saveBtn" class="btn-download hidden">Скачать</button>
     </div>
 
     <div id="viewport">
@@ -154,6 +165,9 @@
             if (!files.length) return;
             workspace.innerHTML = '';
             canvasW = 0; canvasH = 0;
+
+            document.getElementById('viewport').classList.remove('hidden');
+            saveBtn.classList.remove('hidden');
 
             const images = await Promise.all(files.map(file => {
                 return new Promise(resolve => {
@@ -208,8 +222,8 @@
 
         function updateScale() {
             if (canvasW === 0) return;
-            const vW = viewport.clientWidth - 20;
-            const vH = viewport.clientHeight - 20;
+            const vW = viewport.clientWidth - 50;
+            const vH = viewport.clientHeight - 50;
             currentScale = Math.min(vW / canvasW, vH / canvasH);
 
             workspace.style.transform = `translate(-50%, -50%) scale(${currentScale})`;
