@@ -1,203 +1,281 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body { font-family: sans-serif; background: #f0f0f0; margin: 0; padding: 15px; touch-action: manipulation; }
-        .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
-        
-        #workspace {
-            position: relative;
-            background: #fff;
-            border: 2px solid #333;
-            margin: 0 auto;
+        body {
+            font-family: sans-serif;
+            background: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
             overflow: hidden;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            padding: 15px;
+            width: 100%;
+            max-width: 500px;
+            box-sizing: border-box;
+            z-index: 1001;
+            background: #1a1a1a;
+        }
+
+        #viewport {
+            flex-grow: 1;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            /* Обрезаем всё, что за пределами вьюпорта */
+            background: #333;
+            position: relative;
+        }
+
+        #workspace {
+            position: absolute;
+            background: #fff;
+            transform-origin: center center;
             display: none;
-            max-width: 100%; /* Адаптивность под экран */
-            touch-action: none; /* Отключаем системный скролл внутри поля */
+            overflow: hidden;
+            /* КЛЮЧЕВОЕ: картинки не вылезут за границы полотна */
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
         }
 
         .img-wrapper {
             position: absolute;
             cursor: move;
             line-height: 0;
-            user-select: none;
             touch-action: none;
         }
 
-        .img-wrapper.active { outline: 2px dashed #007bff; }
-
-        .img-wrapper img { width: 100%; height: auto; display: block; pointer-events: none; }
-
-        /* Увеличенные маркеры для пальцев */
-        .resizer {
-            width: 24px;
-            height: 24px;
-            background: #007bff;
-            position: absolute;
-            right: -12px;
-            bottom: -12px;
-            cursor: nwse-resize;
-            border-radius: 50%;
-            display: none;
-            border: 3px solid white;
-            z-index: 100;
+        .img-wrapper.active {
+            outline: 4px dashed #007bff;
+            z-index: 999;
         }
 
-        .img-wrapper.active .resizer { display: block; }
+        .img-wrapper img {
+            width: 100%;
+            height: auto;
+            display: block;
+            pointer-events: none;
+        }
 
-        /* Кнопки управления слоями */
-        .layer-controls {
+        .layer-menu {
             position: absolute;
-            top: -45px;
+            top: -60px;
             left: 0;
             display: none;
-            gap: 8px;
-        }
-        .img-wrapper.active .layer-controls { display: flex; }
-        .layer-controls button {
-            padding: 8px 12px;
-            font-size: 14px;
-            background: #333;
-            color: #fff;
-            border: none;
-            border-radius: 5px;
+            gap: 10px;
         }
 
-        #saveBtn { background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; font-weight: bold; }
-        input[type="file"] { max-width: 200px; }
+        .img-wrapper.active .layer-menu {
+            display: flex;
+        }
+
+        .btn {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .btn-ui {
+            background: #555;
+            color: white;
+        }
+
+        .btn-del {
+            background: #ff4d4d;
+            color: white;
+        }
+
+        #saveBtn {
+            background: #29bd67;
+            color: white;
+            flex-grow: 1;
+            display: none;
+            padding: 5px !important;
+        }
+
+        .resizer {
+            width: 44px;
+            height: 44px;
+            background: #007bff;
+            position: absolute;
+            right: -22px;
+            bottom: -22px;
+            border-radius: 50%;
+            border: 4px solid #fff;
+            display: none;
+            z-index: 1001;
+        }
+
+        .img-wrapper.active .resizer {
+            display: block;
+        }
     </style>
 </head>
+
 <body>
 
     <div class="controls">
         <input type="file" id="loader" accept="image/*" multiple>
-        <button id="saveBtn" style="display:none;">Скачать PNG</button>
+        <button id="saveBtn" class="btn">💾 Скачать</button>
     </div>
 
-    <div id="workspace"></div>
+    <div id="viewport">
+        <div id="workspace"></div>
+    </div>
 
     <script>
         const loader = document.getElementById('loader');
         const workspace = document.getElementById('workspace');
         const saveBtn = document.getElementById('saveBtn');
-        let maxWidth = 0, maxHeight = 0;
+        const viewport = document.getElementById('viewport');
+
+        let canvasW = 0, canvasH = 0;
         let activeElement = null;
+        let currentScale = 1;
 
-        loader.onchange = (e) => {
+        loader.onchange = async (e) => {
             const files = Array.from(e.target.files).slice(0, 2);
+            if (!files.length) return;
             workspace.innerHTML = '';
-            maxWidth = 0; maxHeight = 0;
-            
-            files.forEach((file, index) => {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    const img = new Image();
-                    img.src = ev.target.result;
-                    img.onload = () => {
-                        if (img.naturalWidth > maxWidth) maxWidth = img.naturalWidth;
-                        if (img.naturalHeight > maxHeight) maxHeight = img.naturalHeight;
-                        
-                        workspace.style.width = maxWidth + 'px';
-                        workspace.style.height = maxHeight + 'px';
-                        workspace.style.display = 'block';
-                        saveBtn.style.display = 'block';
+            canvasW = 0; canvasH = 0;
 
-                        createWrapper(img, index);
-                    };
-                };
-                reader.readAsDataURL(file);
+            const images = await Promise.all(files.map(file => {
+                return new Promise(resolve => {
+                    const img = new Image();
+                    img.src = URL.createObjectURL(file);
+                    img.onload = () => resolve(img);
+                });
+            }));
+
+            images.forEach(img => {
+                if (img.naturalWidth > canvasW) canvasW = img.naturalWidth;
+                if (img.naturalHeight > canvasH) canvasH = img.naturalHeight;
             });
+
+            initWorkspace(images);
         };
 
-        function createWrapper(img, index) {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'img-wrapper';
-            wrapper.style.zIndex = index + 1;
-            wrapper.style.left = '20px';
-            wrapper.style.top = '50px';
-            wrapper.style.width = '150px'; // Начальный размер для мобильных
+        function initWorkspace(images) {
+            workspace.style.width = canvasW + 'px';
+            workspace.style.height = canvasH + 'px';
+            workspace.style.display = 'block';
+            saveBtn.style.display = 'block';
 
-            wrapper.innerHTML = `
-                <div class="layer-controls">
-                    <button class="layer-up">↑ Слой</button>
-                    <button class="layer-down">↓ Слой</button>
-                </div>
-                <div class="resizer"></div>
-            `;
-            wrapper.appendChild(img);
-            workspace.appendChild(wrapper);
+            updateScale();
 
-            // Обработчики кнопок слоев
-            wrapper.querySelector('.layer-up').onclick = () => wrapper.style.zIndex = parseInt(wrapper.style.zIndex) + 1;
-            wrapper.querySelector('.layer-down').onclick = () => wrapper.style.zIndex = Math.max(1, parseInt(wrapper.style.zIndex) - 1);
+            images.forEach((img, i) => {
+                const wrap = document.createElement('div');
+                wrap.className = 'img-wrapper';
+                wrap.style.zIndex = i + 1;
+                wrap.style.width = (canvasW * 0.5) + 'px';
+                wrap.style.left = '0px';
+                wrap.style.top = '0px';
 
-            initInteractions(wrapper);
+                wrap.innerHTML = `
+                    <div class="layer-menu">
+                        <button class="btn btn-ui up">↑</button>
+                        <button class="btn btn-ui down">↓</button>
+                        <button class="btn btn-del">✕</button>
+                    </div>
+                    <div class="resizer"></div>
+                `;
+                wrap.appendChild(img);
+                workspace.appendChild(wrap);
+
+                wrap.querySelector('.up').onclick = () => wrap.style.zIndex = parseInt(wrap.style.zIndex) + 1;
+                wrap.querySelector('.down').onclick = () => wrap.style.zIndex = Math.max(1, parseInt(wrap.style.zIndex) - 1);
+                wrap.querySelector('.btn-del').onclick = () => wrap.remove();
+
+                setupEvents(wrap);
+            });
         }
 
-        function initInteractions(el) {
-            const resizer = el.querySelector('.resizer');
+        function updateScale() {
+            if (canvasW === 0) return;
+            const vW = viewport.clientWidth - 20;
+            const vH = viewport.clientHeight - 20;
+            currentScale = Math.min(vW / canvasW, vH / canvasH);
 
-            // Универсальная функция для Drag (Mouse + Touch)
-            const startDrag = (e) => {
-                if (e.target.tagName === 'BUTTON') return;
-                
+            workspace.style.transform = `translate(-50%, -50%) scale(${currentScale})`;
+            workspace.style.left = '50%';
+            workspace.style.top = '50%';
+        }
+
+        window.onresize = updateScale;
+
+        function setupEvents(el) {
+            const resizer = el.querySelector('.resizer');
+            const getPos = (e) => {
+                const t = e.touches ? e.touches[0] : e;
+                return { x: t.clientX, y: t.clientY };
+            };
+
+            const startMove = (e) => {
+                if (e.target.tagName === 'BUTTON' || e.target.classList.contains('resizer')) return;
                 if (activeElement) activeElement.classList.remove('active');
                 activeElement = el;
                 el.classList.add('active');
 
-                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                const start = getPos(e);
+                const startX = el.offsetLeft;
+                const startY = el.offsetTop;
 
-                let startX = clientX - el.offsetLeft;
-                let startY = clientY - el.offsetTop;
-
-                const move = (moveEv) => {
-                    const moveX = moveEv.type.includes('touch') ? moveEv.touches[0].clientX : moveEv.clientX;
-                    const moveY = moveEv.type.includes('touch') ? moveEv.touches[0].clientY : moveEv.clientY;
-                    el.style.left = (moveX - startX) + 'px';
-                    el.style.top = (moveY - startY) + 'px';
+                const onMove = (me) => {
+                    const p = getPos(me);
+                    el.style.left = startX + (p.x - start.x) / currentScale + 'px';
+                    el.style.top = startY + (p.y - start.y) / currentScale + 'px';
                 };
 
-                const stop = () => {
-                    document.removeEventListener('mousemove', move);
-                    document.removeEventListener('touchmove', move);
+                const onEnd = () => {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('touchmove', onMove);
                 };
 
-                document.addEventListener('mousemove', move);
-                document.addEventListener('touchmove', move, { passive: false });
-                document.addEventListener('mouseup', stop);
-                document.addEventListener('touchend', stop);
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('mouseup', onEnd);
+                document.addEventListener('touchend', onEnd);
             };
 
-            el.addEventListener('mousedown', startDrag);
-            el.addEventListener('touchstart', startDrag, { passive: false });
+            el.addEventListener('mousedown', startMove);
+            el.addEventListener('touchstart', startMove, { passive: false });
 
-            // Универсальная функция для Resize
             const startResize = (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                
-                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-                let startX = clientX;
-                let startWidth = el.offsetWidth;
+                e.stopPropagation(); e.preventDefault();
+                const start = getPos(e);
+                const startW = el.offsetWidth;
 
-                const move = (moveEv) => {
-                    const moveX = moveEv.type.includes('touch') ? moveEv.touches[0].clientX : moveEv.clientX;
-                    let newWidth = startWidth + (moveX - startX);
-                    if (newWidth > 50) el.style.width = newWidth + 'px';
+                const onResize = (me) => {
+                    const p = getPos(me);
+                    const newW = startW + (p.x - start.x) / currentScale;
+                    if (newW > 50) el.style.width = newW + 'px';
                 };
 
-                const stop = () => {
-                    document.removeEventListener('mousemove', move);
-                    document.removeEventListener('touchmove', move);
+                const onEnd = () => {
+                    document.removeEventListener('mousemove', onResize);
+                    document.removeEventListener('touchmove', onResize);
                 };
 
-                document.addEventListener('mousemove', move);
-                document.addEventListener('touchmove', move, { passive: false });
-                document.addEventListener('mouseup', stop);
-                document.addEventListener('touchend', stop);
+                document.addEventListener('mousemove', onResize);
+                document.addEventListener('touchmove', onResize, { passive: false });
+                document.addEventListener('mouseup', onEnd);
+                document.addEventListener('touchend', onEnd);
             };
 
             resizer.addEventListener('mousedown', startResize);
@@ -206,28 +284,21 @@
 
         saveBtn.onclick = () => {
             const canvas = document.createElement('canvas');
-            canvas.width = maxWidth;
-            canvas.height = maxHeight;
+            canvas.width = canvasW; canvas.height = canvasH;
             const ctx = canvas.getContext('2d');
-
-            const wrappers = Array.from(workspace.querySelectorAll('.img-wrapper'))
+            const layers = Array.from(workspace.querySelectorAll('.img-wrapper'))
                 .sort((a, b) => parseInt(a.style.zIndex) - parseInt(b.style.zIndex));
 
-            wrappers.forEach(wrap => {
-                const img = wrap.querySelector('img');
-                ctx.drawImage(img, 
-                    parseFloat(wrap.style.left), 
-                    parseFloat(wrap.style.top), 
-                    wrap.offsetWidth, 
-                    wrap.offsetHeight
-                );
+            layers.forEach(l => {
+                const img = l.querySelector('img');
+                ctx.drawImage(img, parseFloat(l.style.left), parseFloat(l.style.top), l.offsetWidth, l.offsetHeight);
             });
-
-            const link = document.createElement('a');
-            link.download = 'ready-photo.png';
-            link.href = canvas.toDataURL('image/png');
-            link.click();
+            const a = document.createElement('a');
+            a.download = 'result.png';
+            a.href = canvas.toDataURL('image/png');
+            a.click();
         };
     </script>
 </body>
+
 </html>
