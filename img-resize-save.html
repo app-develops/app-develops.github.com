@@ -2,9 +2,10 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body { font-family: sans-serif; background: #f4f4f9; padding: 20px; }
-        .controls { margin-bottom: 15px; display: flex; gap: 10px; align-items: center; }
+        body { font-family: sans-serif; background: #f0f0f0; margin: 0; padding: 15px; touch-action: manipulation; }
+        .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
         
         #workspace {
             position: relative;
@@ -13,73 +14,66 @@
             margin: 0 auto;
             overflow: hidden;
             display: none;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            max-width: 100%; /* Адаптивность под экран */
+            touch-action: none; /* Отключаем системный скролл внутри поля */
         }
 
         .img-wrapper {
             position: absolute;
             cursor: move;
-            display: inline-block;
             line-height: 0;
-            padding: 0;
             user-select: none;
+            touch-action: none;
         }
 
-        /* Пунктирная рамка при наведении или выборе */
-        .img-wrapper.active {
-            outline: 2px dashed #007bff;
-            outline-offset: -2px;
-        }
+        .img-wrapper.active { outline: 2px dashed #007bff; }
 
-        .img-wrapper img {
-            width: 100%;
-            height: 100%;
-            display: block;
-            pointer-events: none; /* Чтобы не мешать событиям обертки */
-        }
+        .img-wrapper img { width: 100%; height: auto; display: block; pointer-events: none; }
 
-        /* Маркер изменения размера */
+        /* Увеличенные маркеры для пальцев */
         .resizer {
-            width: 12px;
-            height: 12px;
+            width: 24px;
+            height: 24px;
             background: #007bff;
             position: absolute;
-            right: -6px;
-            bottom: -6px;
+            right: -12px;
+            bottom: -12px;
             cursor: nwse-resize;
             border-radius: 50%;
             display: none;
+            border: 3px solid white;
+            z-index: 100;
         }
 
         .img-wrapper.active .resizer { display: block; }
 
-        /* Панель слоев */
+        /* Кнопки управления слоями */
         .layer-controls {
             position: absolute;
-            top: -30px;
+            top: -45px;
             left: 0;
             display: none;
-            gap: 5px;
+            gap: 8px;
         }
         .img-wrapper.active .layer-controls { display: flex; }
         .layer-controls button {
-            padding: 2px 8px;
-            font-size: 10px;
-            cursor: pointer;
+            padding: 8px 12px;
+            font-size: 14px;
             background: #333;
             color: #fff;
             border: none;
-            border-radius: 3px;
+            border-radius: 5px;
         }
 
-        #saveBtn { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        #saveBtn { background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; font-weight: bold; }
+        input[type="file"] { max-width: 200px; }
     </style>
 </head>
 <body>
 
     <div class="controls">
         <input type="file" id="loader" accept="image/*" multiple>
-        <button id="saveBtn" style="display:none;">Сохранить результат</button>
+        <button id="saveBtn" style="display:none;">Скачать PNG</button>
     </div>
 
     <div id="workspace"></div>
@@ -121,69 +115,93 @@
             const wrapper = document.createElement('div');
             wrapper.className = 'img-wrapper';
             wrapper.style.zIndex = index + 1;
-            wrapper.style.left = '10px';
-            wrapper.style.top = '10px';
-            wrapper.style.width = (img.naturalWidth / 2) + 'px'; // Начальный размер
+            wrapper.style.left = '20px';
+            wrapper.style.top = '50px';
+            wrapper.style.width = '150px'; // Начальный размер для мобильных
 
-            // Кнопки слоев
             wrapper.innerHTML = `
                 <div class="layer-controls">
-                    <button onclick="changeLayer(this, 1)">Выше</button>
-                    <button onclick="changeLayer(this, -1)">Ниже</button>
+                    <button class="layer-up">↑ Слой</button>
+                    <button class="layer-down">↓ Слой</button>
                 </div>
                 <div class="resizer"></div>
             `;
             wrapper.appendChild(img);
             workspace.appendChild(wrapper);
 
-            initDragAndResize(wrapper);
+            // Обработчики кнопок слоев
+            wrapper.querySelector('.layer-up').onclick = () => wrapper.style.zIndex = parseInt(wrapper.style.zIndex) + 1;
+            wrapper.querySelector('.layer-down').onclick = () => wrapper.style.zIndex = Math.max(1, parseInt(wrapper.style.zIndex) - 1);
+
+            initInteractions(wrapper);
         }
 
-        function initDragAndResize(el) {
+        function initInteractions(el) {
             const resizer = el.querySelector('.resizer');
 
-            el.onmousedown = (e) => {
+            // Универсальная функция для Drag (Mouse + Touch)
+            const startDrag = (e) => {
                 if (e.target.tagName === 'BUTTON') return;
                 
-                // Активация слоя
                 if (activeElement) activeElement.classList.remove('active');
                 activeElement = el;
                 el.classList.add('active');
 
-                let startX = e.clientX;
-                let startY = e.clientY;
-                let startLeft = el.offsetLeft;
-                let startTop = el.offsetTop;
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
 
-                document.onmousemove = (e) => {
-                    el.style.left = (startLeft + e.clientX - startX) + 'px';
-                    el.style.top = (startTop + e.clientY - startY) + 'px';
+                let startX = clientX - el.offsetLeft;
+                let startY = clientY - el.offsetTop;
+
+                const move = (moveEv) => {
+                    const moveX = moveEv.type.includes('touch') ? moveEv.touches[0].clientX : moveEv.clientX;
+                    const moveY = moveEv.type.includes('touch') ? moveEv.touches[0].clientY : moveEv.clientY;
+                    el.style.left = (moveX - startX) + 'px';
+                    el.style.top = (moveY - startY) + 'px';
                 };
 
-                document.onmouseup = () => document.onmousemove = null;
+                const stop = () => {
+                    document.removeEventListener('mousemove', move);
+                    document.removeEventListener('touchmove', move);
+                };
+
+                document.addEventListener('mousemove', move);
+                document.addEventListener('touchmove', move, { passive: false });
+                document.addEventListener('mouseup', stop);
+                document.addEventListener('touchend', stop);
             };
 
-            // Изменение размера
-            resizer.onmousedown = (e) => {
-                e.stopPropagation(); // Чтобы не срабатывал Drag
-                let startX = e.clientX;
+            el.addEventListener('mousedown', startDrag);
+            el.addEventListener('touchstart', startDrag, { passive: false });
+
+            // Универсальная функция для Resize
+            const startResize = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                let startX = clientX;
                 let startWidth = el.offsetWidth;
-                const ratio = el.offsetHeight / el.offsetWidth;
 
-                document.onmousemove = (e) => {
-                    let newWidth = startWidth + (e.clientX - startX);
-                    if (newWidth > 30) {
-                        el.style.width = newWidth + 'px';
-                    }
+                const move = (moveEv) => {
+                    const moveX = moveEv.type.includes('touch') ? moveEv.touches[0].clientX : moveEv.clientX;
+                    let newWidth = startWidth + (moveX - startX);
+                    if (newWidth > 50) el.style.width = newWidth + 'px';
                 };
-                document.onmouseup = () => document.onmousemove = null;
-            };
-        }
 
-        function changeLayer(btn, direction) {
-            const el = btn.closest('.img-wrapper');
-            let currentZ = parseInt(el.style.zIndex);
-            el.style.zIndex = Math.max(1, currentZ + direction);
+                const stop = () => {
+                    document.removeEventListener('mousemove', move);
+                    document.removeEventListener('touchmove', move);
+                };
+
+                document.addEventListener('mousemove', move);
+                document.addEventListener('touchmove', move, { passive: false });
+                document.addEventListener('mouseup', stop);
+                document.addEventListener('touchend', stop);
+            };
+
+            resizer.addEventListener('mousedown', startResize);
+            resizer.addEventListener('touchstart', startResize, { passive: false });
         }
 
         saveBtn.onclick = () => {
@@ -192,7 +210,6 @@
             canvas.height = maxHeight;
             const ctx = canvas.getContext('2d');
 
-            // Сортируем элементы по z-index перед отрисовкой
             const wrappers = Array.from(workspace.querySelectorAll('.img-wrapper'))
                 .sort((a, b) => parseInt(a.style.zIndex) - parseInt(b.style.zIndex));
 
@@ -207,17 +224,9 @@
             });
 
             const link = document.createElement('a');
-            link.download = 'result.png';
+            link.download = 'ready-photo.png';
             link.href = canvas.toDataURL('image/png');
             link.click();
-        };
-
-        // Клик мимо для снятия выделения
-        window.onclick = (e) => {
-            if (!e.target.closest('.img-wrapper') && !e.target.closest('#loader')) {
-                if (activeElement) activeElement.classList.remove('active');
-                activeElement = null;
-            }
         };
     </script>
 </body>
